@@ -1,0 +1,26 @@
+FROM node:24-bookworm-slim
+
+WORKDIR /app
+
+COPY package.json package-lock.json tsconfig.json ./
+COPY src ./src
+COPY deploy ./deploy
+RUN npm ci \
+    && npm install --global supergateway@3.4.3 \
+    && node deploy/patch-supergateway-sse.mjs \
+    && npm prune --omit=dev \
+    && groupadd --gid 1999 qbo-mcp \
+    && useradd --uid 1999 --gid 1999 --home-dir /app --no-create-home qbo-mcp \
+    && mkdir --mode=0700 /data \
+    && ln -s /data/.env /app/.env \
+    && chown -R qbo-mcp:qbo-mcp /app /data
+
+USER qbo-mcp:qbo-mcp
+
+EXPOSE 8000 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["supergateway"]
+CMD ["--stdio", "node dist/index.js", "--port", "8080", "--healthEndpoint", "/healthz"]

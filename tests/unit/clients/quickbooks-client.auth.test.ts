@@ -142,7 +142,7 @@ describe('QuickbooksClient.authenticate', () => {
     expect(callbackHandler).toBeUndefined();
   });
 
-  it('falls back to the interactive OAuth flow when the refresh token is rejected, and uses the localhost redirect', async () => {
+  it('falls back to the interactive OAuth flow when the refresh token is rejected, and uses the configured redirect', async () => {
     // Force the next authenticate() to attempt a refresh.
     (quickbooksClient as unknown as { accessTokenExpiry?: Date }).accessTokenExpiry = new Date(0);
 
@@ -165,7 +165,7 @@ describe('QuickbooksClient.authenticate', () => {
     // redirect (NOT the playground URI from the environment).
     expect(oauthInstances).toHaveLength(2);
     const flowClient = oauthInstances[1];
-    expect(flowClient.cfg.redirectUri).toBe('http://localhost:8000/callback');
+    expect(flowClient.cfg.redirectUri).toBe('https://developer.intuit.com/v2/OAuth2Playground/RedirectUrl');
 
     // The state actually used is a random per-run value, not a fixed literal —
     // read it off the authorizeUri() call so the simulated callback matches it.
@@ -187,7 +187,11 @@ describe('QuickbooksClient.authenticate', () => {
 
     // The flow's new refresh token was then exchanged for an access token.
     expect(refreshDispatch).toHaveBeenLastCalledWith('flow-refresh-token');
-    expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'text/html' });
+    expect(res.writeHead).toHaveBeenCalledWith(302, {
+      Location: '/legal/oauth-success/',
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
+    });
   }, 15000);
 
   it('rejects a callback whose state does not match the one from this run\'s authorize request', async () => {

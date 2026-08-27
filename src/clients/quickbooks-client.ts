@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import open from 'open';
+import { decryptStoredValue, encryptStoredValue } from '../helpers/token-encryption.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -40,6 +41,8 @@ const TOKEN_STORE_PATH =
 // REFRESH_TOKEN / REALM_ID even when the host config has those keys set to "".
 dotenv.config({ path: TOKEN_STORE_PATH, override: true });
 
+const tokenEncryptionKeyFile = process.env.QUICKBOOKS_TOKEN_ENCRYPTION_KEY_FILE;
+
 // Register once at module level — registering inside startOAuthFlow() would
 // accumulate duplicate handlers on every OAuth call.
 process.on('uncaughtException', (err) => {
@@ -51,8 +54,12 @@ process.on('unhandledRejection', (reason) => {
 
 const client_id = process.env.QUICKBOOKS_CLIENT_ID;
 const client_secret = process.env.QUICKBOOKS_CLIENT_SECRET;
-const refresh_token = process.env.QUICKBOOKS_REFRESH_TOKEN;
-const realm_id = process.env.QUICKBOOKS_REALM_ID;
+const refresh_token = process.env.QUICKBOOKS_REFRESH_TOKEN_ENCRYPTED
+  ? decryptStoredValue(process.env.QUICKBOOKS_REFRESH_TOKEN_ENCRYPTED, tokenEncryptionKeyFile)
+  : process.env.QUICKBOOKS_REFRESH_TOKEN;
+const realm_id = process.env.QUICKBOOKS_REALM_ID_ENCRYPTED
+  ? decryptStoredValue(process.env.QUICKBOOKS_REALM_ID_ENCRYPTED, tokenEncryptionKeyFile)
+  : process.env.QUICKBOOKS_REALM_ID;
 const environment = process.env.QUICKBOOKS_ENVIRONMENT || 'sandbox';
 // Fix for Issue #5: Use env var with underscore (QUICKBOOKS_REDIRECT_URI)
 const redirect_uri = process.env.QUICKBOOKS_REDIRECT_URI || 'http://localhost:8000/callback';
@@ -262,16 +269,15 @@ export class QuickbooksClient {
     this.isAuthenticating = true;
     const port = 8000;
 
-    // The local server below receives the callback, so the authorize/exchange
-    // pair must use the localhost redirect even when QUICKBOOKS_REDIRECT_URI
-    // points elsewhere (e.g. the OAuth playground used for manual token
-    // generation). Intuit rejects the exchange if the redirect_uri does not
-    // match the one used in the authorize request.
+    // The local server below receives the callback, either directly or through
+    // a reverse proxy. Production Intuit apps require a public HTTPS redirect,
+    // so preserve the configured URI for both authorization and token exchange.
+    // Intuit rejects the exchange if these redirect_uri values differ.
     const flowClient = new OAuthClient({
       clientId: this.clientId,
       clientSecret: this.clientSecret,
       environment: this.environment,
-      redirectUri: `http://localhost:${port}/callback`,
+      redirectUri: this.redirectUri,
     });
 
     return new Promise((resolve, reject) => {
@@ -292,7 +298,7 @@ export class QuickbooksClient {
 
       // Create temporary server for OAuth callback
       const server = http.createServer(async (req, res) => {
-        console.log(`[auth-server] ${req.method} ${req.url}`);
+        console.log(`[auth-server] ${req.method} ${req.url?.split('?')[0] ?? '/'}`);
 
         // Respond to anything that isn't /callback so diagnostic probes (curl,
         // ngrok health checks, favicon requests, etc.) don't hang the server.
@@ -319,8 +325,12 @@ export class QuickbooksClient {
         // is set synchronously before the first `await`, so the second request's
         // handler observes it and bails out here.
         if (codeExchangeStarted) {
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end('<html><body style="font-family:Arial;text-align:center;margin-top:20vh"><h2>Processing… you can close this window.</h2></body></html>');
+          res.writeHead(302, {
+            Location: '/legal/oauth-success/',
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer',
+          });
+          res.end();
           return;
         }
         codeExchangeStarted = true;
@@ -335,25 +345,14 @@ export class QuickbooksClient {
             this.realmId = tokens.realmId;
             this.saveTokensToEnv();
 
-            // Send success response
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(`
-              <html>
-                <body style="
-                  display: flex;
-                  flex-direction: column;
-                  justify-content: center;
-                  align-items: center;
-                  height: 100vh;
-                  margin: 0;
-                  font-family: Arial, sans-serif;
-                  background-color: #f5f5f5;
-                ">
-                  <h2 style="color: #2E8B57;">✓ Successfully connected to QuickBooks!</h2>
-                  <p>You can close this window now.</p>
-                </body>
-              </html>
-            `);
+            // Redirect away from the callback URL so the authorization code is
+            // not retained in browser history or leaked through a Referer header.
+            res.writeHead(302, {
+              Location: '/legal/oauth-success/',
+              'Cache-Control': 'no-store',
+              'Referrer-Policy': 'no-referrer',
+            });
+            res.end();
 
             // Close server after a short delay
             setTimeout(() => {
@@ -362,25 +361,13 @@ export class QuickbooksClient {
               resolve();
             }, 1000);
           } catch (error) {
-            console.error('Error during token creation:', error);
-            res.writeHead(500, { 'Content-Type': 'text/html' });
-            res.end(`
-              <html>
-                <body style="
-                  display: flex;
-                  flex-direction: column;
-                  justify-content: center;
-                  align-items: center;
-                  height: 100vh;
-                  margin: 0;
-                  font-family: Arial, sans-serif;
-                  background-color: #fff0f0;
-                ">
-                  <h2 style="color: #d32f2f;">Error connecting to QuickBooks</h2>
-                  <p>Please check the console for more details.</p>
-                </body>
-              </html>
-            `);
+            console.error('OAuth token exchange failed');
+            res.writeHead(302, {
+              Location: '/legal/oauth-error/',
+              'Cache-Control': 'no-store',
+              'Referrer-Policy': 'no-referrer',
+            });
+            res.end();
             this.isAuthenticating = false;
             reject(error);
           }
@@ -435,8 +422,19 @@ export class QuickbooksClient {
       }
     };
 
-    if (this.refreshToken) updateEnvVar('QUICKBOOKS_REFRESH_TOKEN', this.refreshToken);
-    if (this.realmId) updateEnvVar('QUICKBOOKS_REALM_ID', this.realmId);
+    if (tokenEncryptionKeyFile) {
+      if (this.refreshToken) updateEnvVar('QUICKBOOKS_REFRESH_TOKEN_ENCRYPTED', encryptStoredValue(this.refreshToken, tokenEncryptionKeyFile));
+      if (this.realmId) updateEnvVar('QUICKBOOKS_REALM_ID_ENCRYPTED', encryptStoredValue(this.realmId, tokenEncryptionKeyFile));
+      for (let index = envLines.length - 1; index >= 0; index--) {
+        if (envLines[index].startsWith('QUICKBOOKS_REFRESH_TOKEN=') ||
+            envLines[index].startsWith('QUICKBOOKS_REALM_ID=')) {
+          envLines.splice(index, 1);
+        }
+      }
+    } else {
+      if (this.refreshToken) updateEnvVar('QUICKBOOKS_REFRESH_TOKEN', this.refreshToken);
+      if (this.realmId) updateEnvVar('QUICKBOOKS_REALM_ID', this.realmId);
+    }
 
     const newContent = envLines.join('\n');
     const isSymlink = this.isSymbolicLink(tokenPath);

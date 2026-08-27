@@ -15,7 +15,7 @@
  *
  * Prerequisites:
  * - QUICKBOOKS_CLIENT_ID and QUICKBOOKS_CLIENT_SECRET must be set in .env
- * - http://localhost:8000/callback must be registered as a redirect URI in your Intuit app
+ * - QUICKBOOKS_REDIRECT_URI must be registered as a redirect URI in your Intuit app
  */
 
 import { quickbooksClient } from './clients/quickbooks-client.js';
@@ -35,12 +35,12 @@ async function main() {
     console.log('\nYou can now use the MCP server.');
 
     process.exit(0);
-  } catch (error) {
-    console.error('\n✗ Authentication failed:', error);
+  } catch {
+    console.error('\n✗ Authentication failed. Review the configuration and retry.');
     console.error('\nPlease check:');
     console.error('1. QUICKBOOKS_CLIENT_ID is set correctly in .env');
     console.error('2. QUICKBOOKS_CLIENT_SECRET is set correctly in .env');
-    console.error('3. http://localhost:8000/callback is registered as a redirect URI in your Intuit app');
+    console.error('3. QUICKBOOKS_REDIRECT_URI is registered exactly in your Intuit app');
 
     process.exit(1);
   }

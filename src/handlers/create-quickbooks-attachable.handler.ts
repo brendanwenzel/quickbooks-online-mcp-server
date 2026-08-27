@@ -151,14 +151,16 @@ async function uploadAttachableFile(
         res.on("end", () => {
           const responseText = Buffer.concat(chunks).toString("utf-8");
           if (res.statusCode && res.statusCode >= 400) {
-            console.error(`[qbo-attachable-upload] QBO ${res.statusCode}: ${responseText}`);
+            // QuickBooks error bodies can contain realm IDs, email addresses,
+            // transaction details, and internal traces. Never persist them in logs.
+            console.error(`[qbo-attachable-upload] QBO request failed with status ${res.statusCode}`);
             reject(new Error(redactedUploadError(res.statusCode)));
             return;
           }
           try {
             resolve(JSON.parse(responseText) as unknown);
           } catch {
-            console.error(`[qbo-attachable-upload] QBO ${res.statusCode} non-JSON: ${responseText}`);
+            console.error(`[qbo-attachable-upload] QBO returned a non-JSON response with status ${res.statusCode}`);
             reject(new Error(redactedUploadError(res.statusCode)));
           }
         });
