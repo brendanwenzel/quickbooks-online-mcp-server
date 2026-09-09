@@ -1,0 +1,87 @@
+name: quickbooks-mcp
+
+x-qbo-common: &qbo-common
+  image: local/quickbooks-online-mcp-server:797d955eecf6
+  restart: unless-stopped
+  init: true
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+    - apparmor=docker-default
+  pids_limit: 256
+  mem_limit: 1g
+  cpus: 1.0
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+
+services:
+  cute-n-country:
+    <<: *qbo-common
+    container_name: qbo-mcp-cute-n-country
+    command:
+      - --stdio
+      - node /app/dist/index.js
+      - --outputTransport
+      - sse
+      - --port
+      - "8080"
+      - --baseUrl
+      - https://mcp.brendanwenzel.org/cute-n-country
+      - --healthEndpoint
+      - /healthz
+      - --logLevel
+      - error
+    ports:
+      - 127.0.0.1:18001:8080
+      - 127.0.0.1:18101:8000
+    volumes:
+      - /var/lib/quickbooks-mcp/cute-n-country:/data
+      - /etc/quickbooks-mcp/keys/cute-n-country.key:/run/secrets/qbo-token-key:ro
+
+  surfers-of-light:
+    <<: *qbo-common
+    container_name: qbo-mcp-surfers-of-light
+    command:
+      - --stdio
+      - node /app/dist/index.js
+      - --outputTransport
+      - sse
+      - --port
+      - "8080"
+      - --baseUrl
+      - https://mcp.brendanwenzel.org/surfers-of-light
+      - --healthEndpoint
+      - /healthz
+      - --logLevel
+      - error
+    ports:
+      - 127.0.0.1:18002:8080
+      - 127.0.0.1:18102:8000
+    volumes:
+      - /var/lib/quickbooks-mcp/surfers-of-light:/data
+      - /etc/quickbooks-mcp/keys/surfers-of-light.key:/run/secrets/qbo-token-key:ro
+
+  salty-ecom:
+    <<: *qbo-common
+    container_name: qbo-mcp-salty-ecom
+    command:
+      - --stdio
+      - node /app/dist/index.js
+      - --outputTransport
+      - sse
+      - --port
+      - "8080"
+      - --baseUrl
+      - https://mcp.brendanwenzel.org/salty-ecom
+      - --healthEndpoint
+      - /healthz
+      - --logLevel
+      - error
+    ports:
+      - 127.0.0.1:18003:8080
+      - 127.0.0.1:18103:8000
+    volumes:
+      - /var/lib/quickbooks-mcp/salty-ecom:/data
+      - /etc/quickbooks-mcp/keys/salty-ecom.key:/run/secrets/qbo-token-key:ro

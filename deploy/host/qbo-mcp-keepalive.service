@@ -1,0 +1,17 @@
+[Unit]
+Description=QuickBooks MCP token keep-alive and endpoint check (daily)
+Documentation=file:///srv/apps/quickbooks-mcp/README.md
+After=network-online.target docker.service
+Wants=network-online.target
+OnFailure=error-notify@%n.service
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+EnvironmentFile=-/etc/quickbooks-mcp/keepalive.env
+ExecStart=/usr/bin/python3 /srv/apps/quickbooks-mcp/bin/keepalive.py
+TimeoutStartSec=8min
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

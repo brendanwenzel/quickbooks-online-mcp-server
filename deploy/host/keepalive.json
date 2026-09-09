@@ -1,0 +1,9 @@
+{
+  "public_host": "mcp.brendanwenzel.org",
+  "heartbeat_weekday": 0,
+  "targets": [
+    {"slug": "cute-n-country",   "port": 18001, "expect": "Cute n' Country LLC"},
+    {"slug": "surfers-of-light", "port": 18002, "expect": "Surfers of Light, Inc."},
+    {"slug": "salty-ecom",       "port": 18003, "expect": "SALTY ECOM, INC."}
+  ]
+}
