@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import open from 'open';
 import { decryptStoredValue, encryptStoredValue } from '../helpers/token-encryption.js';
 import { isPublicHttpsRedirect } from '../helpers/redirect-uri.js';
+import { withIntuitTid } from '../helpers/intuit-tid.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -642,8 +643,9 @@ export class QuickbooksClient {
           }
         }
 
-        // Always rebuild with the current fresh access token
-        this.quickbooksInstance = new QuickBooks(
+        // Always rebuild with the current fresh access token. Wrapped so API
+        // errors carry Intuit's intuit_tid for support troubleshooting.
+        this.quickbooksInstance = withIntuitTid(new QuickBooks(
           this.clientId,
           this.clientSecret,
           this.accessToken!,
@@ -654,7 +656,7 @@ export class QuickbooksClient {
           null,  // minor version
           '2.0', // oauth version
           this.refreshToken
-        );
+        ));
 
         return this.quickbooksInstance;
       } finally {

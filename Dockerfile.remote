@@ -8,6 +8,7 @@ COPY deploy ./deploy
 RUN npm ci \
     && npm install --global supergateway@3.4.3 tar@7.5.19 \
     && node deploy/patch-supergateway-sse.mjs \
+    && node deploy/patch-supergateway-loglevel.mjs \
     && npm prune --omit=dev \
     && groupadd --gid 1999 qbo-mcp \
     && useradd --uid 1999 --gid 1999 --home-dir /app --no-create-home qbo-mcp \
