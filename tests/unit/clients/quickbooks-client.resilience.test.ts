@@ -109,15 +109,27 @@ jest.unstable_mockModule('fs', () => ({
 
 const { QuickbooksClient } = await import('../../../src/clients/quickbooks-client');
 
-function makeClient(overrides: Partial<{ environment: string; refreshToken: string }> = {}) {
+function makeClient(overrides: Partial<{ environment: string; refreshToken: string; redirectUri: string }> = {}) {
   return new QuickbooksClient({
     clientId: 'test-client-id',
     clientSecret: 'test-client-secret',
     refreshToken: overrides.refreshToken ?? 'in-memory-token',
     realmId: '12345',
     environment: overrides.environment ?? 'sandbox',
-    redirectUri: 'https://developer.intuit.com/v2/OAuth2Playground/RedirectUrl',
+    redirectUri: overrides.redirectUri ?? 'https://developer.intuit.com/v2/OAuth2Playground/RedirectUrl',
   });
+}
+
+// Waits until the interactive flow binds its callback server (or the promise
+// settles), which is how these tests prove the interactive path was taken.
+async function flowStarted(authPromise: Promise<unknown>): Promise<boolean> {
+  return Promise.race([
+    (async () => {
+      for (let i = 0; i < 50 && !serverCreated; i++) await new Promise((r) => setImmediate(r));
+      return serverCreated;
+    })(),
+    authPromise.then(() => true).catch(() => true),
+  ]);
 }
 const tokenOf = (client: unknown) => (client as { refreshToken?: string }).refreshToken;
 const envWithToken = (t: string) => `QUICKBOOKS_CLIENT_ID=x\nQUICKBOOKS_REFRESH_TOKEN=${t}\nQUICKBOOKS_REALM_ID=12345\n`;
@@ -260,13 +272,46 @@ describe('production dead-token handling', () => {
     await expect(client.authenticate()).rejects.toThrow(/cannot be renewed automatically in production/);
   });
 
-  it('throws the same actionable error when a production server starts with no refresh token', async () => {
-    const client = makeClient({ environment: 'production', refreshToken: '' });
+  it('throws the same actionable error when a production server starts with no refresh token and a localhost redirect', async () => {
+    const client = makeClient({
+      environment: 'production',
+      refreshToken: '',
+      redirectUri: 'http://localhost:8000/callback',
+    });
     (client as unknown as { refreshToken?: string }).refreshToken = undefined;
 
     await expect(client.authenticate()).rejects.toThrow(/cannot be renewed automatically in production/);
     expect(serverCreated).toBe(false);
     expect(openMock).not.toHaveBeenCalled();
+  });
+
+  it('DOES start the interactive flow in production when a public HTTPS redirect is configured and no token exists', async () => {
+    // A reverse proxy routes the public callback back to port 8000 (deploy/README.md),
+    // so the first-time authorization is legitimate on a production server.
+    const client = makeClient({
+      environment: 'production',
+      refreshToken: '',
+      redirectUri: 'https://mcp.example.com/oauth/company/callback',
+    });
+    (client as unknown as { refreshToken?: string }).refreshToken = undefined;
+
+    expect(await flowStarted(client.authenticate())).toBe(true);
+    expect(serverCreated).toBe(true);
+  });
+
+  it('still refuses the interactive flow in production on a DEAD token even with a public redirect', async () => {
+    // Nobody is watching a host-spawned server process; a dead token must surface
+    // an operator-actionable error rather than silently opening a callback listener.
+    const client = makeClient({
+      environment: 'production',
+      refreshToken: 'dead-prod-public',
+      redirectUri: 'https://mcp.example.com/oauth/company/callback',
+    });
+    fsReadFileSync.mockReturnValue(envWithToken('dead-prod-public'));
+    refreshDispatch.mockRejectedValue(deadTokenError(400));
+
+    await expect(client.authenticate()).rejects.toThrow(/cannot be renewed automatically in production/);
+    expect(serverCreated).toBe(false);
   });
 
   it('does NOT report reauth for a transient error in production, and preserves the token', async () => {
@@ -345,15 +390,7 @@ describe('sandbox transient handling', () => {
 
     // The localhost callback never completes in this harness, so the flow hangs;
     // asserting the server was created proves the dead-token path was taken.
-    const authPromise = client.authenticate();
-    const started = await Promise.race([
-      (async () => {
-        for (let i = 0; i < 50 && !serverCreated; i++) await new Promise((r) => setImmediate(r));
-        return serverCreated;
-      })(),
-      authPromise.then(() => true).catch(() => true),
-    ]);
-    expect(started).toBe(true);
+    expect(await flowStarted(client.authenticate())).toBe(true);
     expect(serverCreated).toBe(true);
   });
 });

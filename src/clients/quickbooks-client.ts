@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import open from 'open';
 import { decryptStoredValue, encryptStoredValue } from '../helpers/token-encryption.js';
+import { isPublicHttpsRedirect } from '../helpers/redirect-uri.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -254,11 +255,13 @@ export class QuickbooksClient {
   }
 
   private async startOAuthFlow(): Promise<void> {
-    // The interactive flow below binds a localhost callback server, but Intuit
-    // rejects localhost redirect URIs for production apps — so this can only
-    // ever succeed in sandbox. Fail fast with guidance rather than opening a
-    // doomed browser window on a production server.
-    if (this.environment === 'production') {
+    // The interactive flow below binds a callback server on port 8000. Intuit
+    // rejects localhost redirect URIs for production apps, so with the default
+    // localhost redirect this can only ever succeed in sandbox: fail fast with
+    // guidance rather than opening a doomed browser window. When the operator
+    // has configured a public HTTPS redirect that a reverse proxy routes back to
+    // port 8000 (see deploy/README.md), the production flow is legitimate.
+    if (this.environment === 'production' && !isPublicHttpsRedirect(this.redirectUri)) {
       throw this.reauthError();
     }
 
