@@ -1,7 +1,7 @@
 name: quickbooks-mcp
 
 x-qbo-common: &qbo-common
-  image: local/quickbooks-online-mcp-server:797d955eecf6
+  image: local/quickbooks-online-mcp-server:565caf6d4e68
   restart: unless-stopped
   init: true
   read_only: true
