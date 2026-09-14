@@ -9,11 +9,12 @@ token has expired, which rotates and persists the Intuit refresh token — so th
 that the public Caddy route still gates the endpoint (401 without a bearer).
 
 Failures post to Slack (SLACK_WEBHOOK_URL, the #finance webhook) and exit 1 so
-OnFailure=error-notify@ fires as well. Success is silent except for a weekly
-heartbeat on HEARTBEAT_WEEKDAY (0 = Monday), or always with QBO_KEEPALIVE_HEARTBEAT=1.
+OnFailure=error-notify@ fires as well. Success is silent: Brendan only wants to
+hear about problems (2026-09-14). A weekly "all OK" heartbeat is opt-in by setting
+"heartbeat_weekday" (0 = Monday) in the config; QBO_KEEPALIVE_HEARTBEAT=1 forces one.
 
 Config: /etc/quickbooks-mcp/keepalive.json
-  {"public_host": "mcp.brendanwenzel.org", "heartbeat_weekday": 0,
+  {"public_host": "mcp.brendanwenzel.org", "heartbeat_weekday": null,
    "targets": [{"slug": "salty-ecom", "port": 18003, "expect": "SALTY ECOM, INC."}, ...]}
 No secrets are read other than the webhook; no financial data is fetched or logged.
 """
@@ -196,8 +197,9 @@ def main() -> int:
     report = "\n".join(lines)
     print(report)
     today = dt.date.today()
+    weekday = cfg.get("heartbeat_weekday")  # null/absent = never post on success
     heartbeat = os.environ.get("QBO_KEEPALIVE_HEARTBEAT") == "1" or \
-        today.weekday() == int(cfg.get("heartbeat_weekday", 0))
+        (weekday is not None and today.weekday() == int(weekday))
     if not ok:
         slack(f"*QuickBooks MCP keep-alive FAILED* ({today.isoformat()})\n{report}\n"
               "Re-authorize: see Systems registry entry “QuickBooks Online MCP”.")

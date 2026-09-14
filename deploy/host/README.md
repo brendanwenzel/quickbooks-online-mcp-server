@@ -66,7 +66,8 @@ Intuit refresh token and keeps the 100-day inactivity clock reset), checks the
 company name against `/etc/quickbooks-mcp/keepalive.json`, and checks that the public
 route still returns 401 without a bearer. Any failure posts to Slack `#finance`
 (`SLACK_WEBHOOK_URL` in `/etc/quickbooks-mcp/keepalive.env`, root-only) and fails the
-unit so `error-notify@` fires too. A weekly heartbeat posts on Mondays.
+unit so `error-notify@` fires too. Success is silent; set `heartbeat_weekday` in
+keepalive.json (0 = Monday) only if a weekly "all OK" post is wanted.
 
 ```bash
 sudo systemctl start qbo-mcp-keepalive.service      # run now
