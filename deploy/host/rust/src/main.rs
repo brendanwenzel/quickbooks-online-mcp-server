@@ -13,6 +13,10 @@ fn integer(value: &Value) -> Option<i64> {
     }
 }
 async fn run() -> Result<i32, String> {
+    if env::args().skip(1).collect::<Vec<_>>() == ["--help"] {
+        println!("qbo-mcp-keepalive: configuration via QBO_KEEPALIVE_CONFIG; no work performed\nsource={}\ntarget={}",option_env!("QBO_BUILD_COMMIT").unwrap_or("development"),option_env!("QBO_BUILD_TARGET").unwrap_or("development"));
+        return Ok(0);
+    }
     if env::args().len() != 1 {
         return Err(
             "This watchdog accepts configuration through its existing environment only".into(),

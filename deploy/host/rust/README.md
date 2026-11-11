@@ -77,18 +77,50 @@ Rust implementation, including stream closure. All three Rust runs reused one
 POST connection; Python opened three. Timing is supplementary to the request and
 response contract assertions.
 
-## Release and rollback plan, not activated
+## Guarded release tooling, not activated
 
-After independent review, build the locked release binary from main and package
-it with the source revision, native build target, baseline hash and checksums.
-The reviewed installer must preserve the current DynamicUser identity, timer,
-environment file and notification policy. Keep the Python file and exact prior
-unit as the rollback target. Install only the watchdog binary and an ExecStart
-binding under `/srv/apps/quickbooks-mcp`; do not rebuild or restart containers.
+The versioned scripts under `deploy/` prepare the first Rust binding. Build as
+coral from clean published main; existing output directories are refused. The
+builder pins both Cargo's native target and target directory, embeds the source
+commit/target in the binary's side-effect-free `--help`, and publishes a staged
+package with a fixed four-file checksum manifest. The artifact is never run
+without `--help` during packaging or installation.
 
-Activation must verify the service is idle and retain a reversible previous
-binding. Do not manually invoke the installed watchdog during source verification:
-that would contact real QBO endpoints and could notify Slack. Parent owns the
-release decision and its separately authorized runtime verification. Rollback
-restores the previous ExecStart and reloads systemd without changing company
-configuration, OAuth tokens, notification credentials or the timer schedule.
+```
+deploy/host/rust/deploy/build-release.sh NEW_PACKAGE_DIRECTORY
+python3 deploy/host/rust/tests/build_scripts.py
+python3 deploy/host/rust/tests/release_scripts.py
+```
+
+Five fake-compiler build scenarios verify clean-main guards, native-target
+selection despite `CARGO_BUILD_TARGET`, artifact help, no overwrite and failed
+build cleanup. Nineteen disposable install/rollback scenarios use copied scripts
+with temporary paths and fake systemctl/runuser. They cover active/masked/changed
+identity refusal, malformed manifests, wrong native targets, baseline drift,
+dangling releases, writable directories, reload failures, interruption and races.
+These fixtures do not access real systemd or execute a watchdog call.
+
+`install-release.sh PACKAGE` is root-only on arbitrum. It validates the unchanged
+Python source and base unit against pinned SHA-256 values, requires DynamicUser,
+checks exact loaded executable and arguments, takes a release lock, and refuses
+an active service or existing Rust binding. It stages/rechecks the package,
+records the fixed prior command and override, runs only help as coral, then
+publishes `/srv/apps/quickbooks-mcp/keepalive-rust/releases/COMMIT` and an
+ExecStart-only drop-in. The timer, environment file, Caddy and containers are not
+modified or invoked. The baseline unit hash is
+`a9e1b831b6a767c1d6b4394f5b154ade5269d00285e4ecd0a7c3640f43318875`.
+
+`rollback-release.sh COMMIT` requires the exact managed binding and an inactive
+service, removes the drop-in and verifies the original Python command. If reload
+fails, its trap restores the Rust binding and retains the immutable release.
+Both scripts recheck inactivity before mutation. If a timer races an installation
+and the service becomes active, recovery does not alter that running binding;
+it reports failure and retains the artifact for reviewed recovery. Neither script
+starts or stops the watchdog, timer or any container. Release files remain after
+rollback. An interrupted first-install package is retained rather than reused
+without review.
+
+No package has been installed by this change. Parent owns activation and its
+separately authorized runtime verification. A forced watchdog invocation would
+contact real QBO endpoints and could notify Slack, so it is excluded from these
+build/install checks. No OAuth or notification credentials are read or changed.
