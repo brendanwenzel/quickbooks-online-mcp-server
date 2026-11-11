@@ -8,7 +8,10 @@ async fn fixture_driver() {
     };
     let input: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let wait = Duration::from_secs_f64(input["timeout"].as_f64().unwrap_or(1.0));
-    let mut builder = reqwest::Client::builder().no_proxy().read_timeout(wait);
+    let mut builder = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .read_timeout(wait);
     if let Some(path) = input["certificate"].as_str() {
         builder = builder.add_root_certificate(
             reqwest::Certificate::from_pem(&std::fs::read(path).unwrap()).unwrap(),
@@ -18,6 +21,12 @@ async fn fixture_driver() {
     let local = client(wait, false).unwrap();
     let started = Instant::now();
     let output = match input["op"].as_str().unwrap() {
+        "diagnostics" => json!(input["replies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|reply| company_result("fixture", "Synthetic company", reply, 0.0))
+            .collect::<Vec<_>>()),
         "company" => json!(
             check_company(
                 &local,

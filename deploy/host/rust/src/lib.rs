@@ -179,11 +179,7 @@ pub fn client(wait: Duration, redirects: bool) -> Result<Client> {
     builder
         .connect_timeout(wait)
         .read_timeout(wait)
-        .redirect(if redirects {
-            reqwest::redirect::Policy::limited(10)
-        } else {
-            reqwest::redirect::Policy::none()
-        })
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(transport)
 }
@@ -215,7 +211,7 @@ fn error_json(value: &Value) -> String {
             .to_string()
             .chars()
             .map(|c| {
-                if c.is_ascii() {
+                if c.is_ascii() && c != '\u{7f}' {
                     c.to_string()
                 } else {
                     c.encode_utf16(&mut [0; 2])
@@ -227,6 +223,21 @@ fn error_json(value: &Value) -> String {
             .collect(),
         _ => value.to_string(),
     }
+}
+fn nonprintable(c: char) -> bool {
+    use unicode_general_category::{get_general_category as category, GeneralCategory::*};
+    c != ' '
+        && matches!(
+            category(c),
+            Control
+                | Format
+                | LineSeparator
+                | ParagraphSeparator
+                | SpaceSeparator
+                | PrivateUse
+                | Unassigned
+                | Surrogate
+        )
 }
 fn repr(value: &Value) -> String {
     match value {
@@ -257,6 +268,16 @@ fn repr(value: &Value) -> String {
                     '\n' => out.push_str("\\n"),
                     '\r' => out.push_str("\\r"),
                     '\t' => out.push_str("\\t"),
+                    v if nonprintable(v) => {
+                        let code = v as u32;
+                        out.push_str(&if code <= 255 {
+                            format!("\\x{code:02x}")
+                        } else if code <= 65535 {
+                            format!("\\u{code:04x}")
+                        } else {
+                            format!("\\U{code:08x}")
+                        });
+                    }
                     v if v == quote => {
                         out.push('\\');
                         out.push(v)
@@ -357,25 +378,70 @@ pub async fn check_company(
         Err(error) => (false, format!("{slug}: transport failure: {error}")),
     }
 }
+async fn external_request(
+    client: &Client,
+    url: &str,
+    body: Option<Value>,
+    wait: Duration,
+) -> Result<Response> {
+    let mut url = reqwest::Url::parse(url).map_err(|_| "Invalid endpoint")?;
+    let mut body = body;
+    let mut visited = HashMap::new();
+    for _ in 0..11 {
+        let request = if let Some(value) = &body {
+            client.post(url.clone()).json(value)
+        } else {
+            client.get(url.clone())
+        };
+        let response = request.timeout(wait).send().await.map_err(transport)?;
+        let status = response.status().as_u16();
+        if !matches!(status, 301 | 302 | 303 | 307 | 308)
+            || (body.is_some() && matches!(status, 307 | 308))
+        {
+            return Ok(response);
+        }
+        let Some(location) = response
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+        else {
+            return Ok(response);
+        };
+        let next = url.join(location).map_err(|_| "Invalid redirect")?;
+        if !matches!(next.scheme(), "http" | "https")
+            || !next.username().is_empty()
+            || next.password().is_some()
+        {
+            return Err("Unsafe redirect refused".into());
+        }
+        let count = visited.entry(next.to_string()).or_insert(0);
+        *count += 1;
+        if *count > 4 {
+            return Err("Redirect limit exceeded".into());
+        }
+        url = next;
+        body = None;
+    }
+    Err("Redirect limit exceeded".into())
+}
 pub async fn check_gate(client: &Client, public_host: &str, slug: &str) -> (bool, String) {
-    let result = client
-        .get(format!("https://{public_host}/{slug}/healthz"))
-        .timeout(Duration::from_secs(20))
-        .send()
-        .await;
+    let result = external_request(
+        client,
+        &format!("https://{public_host}/{slug}/healthz"),
+        None,
+        Duration::from_secs(20),
+    )
+    .await;
     match result {
         Ok(response) => match response.status().as_u16() {
             401 => (true, format!("{slug}: public route gated (401)")),
-            status if status < 400 => (
+            status if (200..300).contains(&status) => (
                 false,
                 format!("{slug}: public route answered {status} WITHOUT a bearer (gate down?)"),
             ),
             status => (false, format!("{slug}: public route HTTP {status}")),
         },
-        Err(error) => (
-            false,
-            format!("{slug}: public route unreachable: {}", transport(error)),
-        ),
+        Err(error) => (false, format!("{slug}: public route unreachable: {error}")),
     }
 }
 pub async fn slack(client: &Client, webhook: Option<&str>, text: &str) -> Result<()> {
@@ -383,15 +449,15 @@ pub async fn slack(client: &Client, webhook: Option<&str>, text: &str) -> Result
         eprintln!("(no SLACK_WEBHOOK_URL; not posting)");
         return Ok(());
     };
-    let response = client
-        .post(webhook)
-        .timeout(Duration::from_secs(30))
-        .json(&json!({"text":text}))
-        .send()
-        .await
-        .map_err(transport)?;
+    let response = external_request(
+        client,
+        webhook,
+        Some(json!({"text":text})),
+        Duration::from_secs(30),
+    )
+    .await?;
     let status = response.status().as_u16();
-    if status >= 400 {
+    if !(200..300).contains(&status) {
         return Err(format!("Slack HTTP {status}"));
     }
     let body = response.bytes().await.map_err(transport)?;

@@ -41,10 +41,13 @@ The test executes the hash-pinned Python source against local fake SSE/HTTP/TLS
 servers and compares the Rust implementation against it. Requests are recorded,
 including the exact handshake/tool payloads and POST connection reuse. TLS tests
 use a freshly generated disposable localhost certificate; production trust is not
-relaxed. The test-only driver accepts fixture paths and a test CA. The installed
+relaxed. POST 301/302/303 redirects become GET; POST 307/308 is refused without
+resending the payload, matching urllib. Missing-location 3xx statuses are failures.
+Unicode diagnostics use pinned Unicode 16 categories and Python-compatible
+control/nonprintable escaping. The test-only driver accepts fixture paths and a test CA. The installed
 binary has no transport-injection flags or test CA option.
 
-The 31-case release suite passed. Cases cover relative/absolute/implicit endpoints, initialization errors,
+The 69-case release suite passed. Cases cover relative/absolute/implicit endpoints, initialization errors,
 transport status failures, missing replies, wrong companies, malformed company
 JSON, tool/RPC errors, six public-gate status codes, untrusted/wrong-host TLS,
 Slack response bodies and full CLI silent/forced/weekly/failure notifications.
@@ -66,7 +69,7 @@ errors; finite positive timeouts up to one day are supported. No healthy result
 is substituted after malformed input or provider failure.
 
 This port grows maintained implementation size from 213 Python lines to about
-510 formatted Rust lines. No code-size reduction is claimed. The latency fixture
+600 formatted Rust lines. No code-size reduction is claimed. The latency fixture
 introduces 25 ms per SSE response to make polling observable; its timing is not a
 measurement of Intuit network latency or token refresh duration. Three successful
 fixture variants measured median 728.9 ms with Python and 51.9 ms with the release
