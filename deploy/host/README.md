@@ -59,8 +59,10 @@ sudo docker compose restart cute-n-country
 
 ## Keep-alive watchdog
 
-`qbo-mcp-keepalive.timer` runs `/srv/apps/quickbooks-mcp/bin/keepalive.py` daily at
-06:30 UTC. For each company it calls `get_company_info` on the container's local port
+`qbo-mcp-keepalive.timer` runs the Rust executable at
+`/srv/apps/quickbooks-mcp/keepalive-rust/current/qbo-mcp-keepalive` daily from
+06:30 UTC with its existing randomized delay. The Python executable remains for
+rollback. Release and rollback instructions are in `rust/README.md`. For each company it calls `get_company_info` on the container's local port
 (forcing a token refresh whenever the access token has expired, which rotates the
 Intuit refresh token and keeps the 100-day inactivity clock reset), checks the
 company name against `/etc/quickbooks-mcp/keepalive.json`, and checks that the public

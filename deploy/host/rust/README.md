@@ -1,9 +1,12 @@
-# QBO watchdog Rust candidate
+# QBO watchdog Rust runtime
 
-Source-only port of the maintained host watchdog. The upstream Intuit MCP server,
-containers, OAuth data and their configuration are outside this change. The
-installed Python watchdog remains active. No real QBO or Slack request was made
-while implementing or verifying this candidate.
+The maintained host watchdog uses Rust release
+`bf9ee67fe8d911c83b1e4fa048c0cc3d2d590ea4`, installed November 11, 2026.
+The executable SHA256 is `e87492dbff56dc8592bdfd63cc4205a26cb6b227f20edd388b2fd5f9fd90ed5f`.
+The upstream Intuit MCP server, containers, OAuth data and their configuration
+remain unchanged. Installation invoked only help. Loaded command, DynamicUser
+and active timer were verified; the next ordinary run is November 12 at
+06:39:43 UTC. Successful provider execution remains to be observed.
 
 Baseline `deploy/host/bin/keepalive.py` and the installed watchdog have identical
 SHA-256 `c3d00adfba5b2311c5dd39ed608c19cd31dff7c8be06a12325fb556d4bc6dc46`.
@@ -120,7 +123,7 @@ starts or stops the watchdog, timer or any container. Release files remain after
 rollback. An interrupted first-install package is retained rather than reused
 without review.
 
-No package has been installed by this change. Parent owns activation and its
-separately authorized runtime verification. A forced watchdog invocation would
+The initial package is installed with the original Python command retained for
+rollback. A forced watchdog invocation would
 contact real QBO endpoints and could notify Slack, so it is excluded from these
 build/install checks. No OAuth or notification credentials are read or changed.
